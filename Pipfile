@@ -12,6 +12,7 @@ pandas = "*"
 requests = "*"
 spotipy = "*"
 neo4j = "*"
+psycopg2 = "*"
 
 [requires]
 python_version = "3.7"
