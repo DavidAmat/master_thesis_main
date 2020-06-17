@@ -1,5 +1,6 @@
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials #To access authorised Spotify data
+import json
 
 class spotify_utils:
     
@@ -13,6 +14,12 @@ class spotify_utils:
         client_credentials_manager = SpotifyClientCredentials(client_id=self.client_id, client_secret=self.client_secret)
         sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager) #spotify object to access API
         return sp
+    
+    def save_as_json(self, inp_dict, out_json):
+        with open(out_json, 'w') as fp:
+            json.dump(inp_dict, fp)
+        return
+        
 
 
     # FUNCTIONS

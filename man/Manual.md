@@ -41,7 +41,7 @@ The main code is in the folder **code/**.
 
 The first thing to do is to create an **app** in Spotify API and get access in order to do Spotify API requests.
 
-Once this is done, the main idea is to retrieve a list of artists from https://kworb.net/ with the idea to have all the top artists of Spotify and their songs as well as to create a graph for artists, songs (see which artists share songs) and similar artists and genres (edges from artist to artist and also from artist to genres). This dataset also provides the Spotify ID for either the artists and the songs, so it will be suitable for making future calls to the Spotify API to work always with such IDs. An artist who is NOT in Spotify cannot enter this study.
+Once this is done, the main idea is to retrieve a list of artists from https://kworb.net/ with the idea to have all the top artists of Spotify and their songs as well as to create a graph for artists, songs (see which artists share songs) and similar artists and genres (edges from artist to artist and also from artist to genres). This dataset also provides the Spotify ID for either the artists and the songs, so it will be suitable for making future calls to the Spotify API to work always with such IDs. An artist who is NOT in Spotify cannot enter this study. To check an artist ID try: https://open.spotify.com/artist/<artist_id>
 
 As regards architecture, we will first create a PostGRESQL and then convert this database named "Spotify" to a graph in Neo4j. This database will need info from songs too, we will either exploit the "kworb" dataset or, in case of artists which are not in that dataset and we want to include it, we will make a search in Spotify API for the top tracks of that artist.  
 
@@ -143,7 +143,27 @@ All the data will come either from scrapping https://kworb.net/ and the Spotify 
 
 ## 1.3 Code
 
-### __01_Dataset_Creation__
+### __00_Database_Creation__
+
+We have connected to the PostGreSQL server, located in /Applications/Postgres.app/Contents/Versions/12/bin/psql. To execute it run:
+
+```bash
+psql -p5432 'spotify'
+
+# To get list of tables
+\dt
+
+# Get info of table schema
+\d <table_name>
+```
+This notebook contains the scripts to generate the tables from the Spotify database.  
+
+It makes use of the code __db_utils.py__ which is a set of functions that will help to reduce writing code to the basic queries to the PostGreSQL server. 
+
+(CONTINUE)
+
+
+### __01_Master_Artist_Creation__
 
 This script relies on the __aux_utils.py__ which has the credentials and functions to connect to Spotify API.
 
@@ -153,9 +173,14 @@ This script relies on the __aux_utils.py__ which has the credentials and functio
 
 3. We identify some other groups both in Spain and in Catalonia that are worth including in the dataset, so they will be added in a different list from the main, since these are "other_artists". 
 
-4. We will search for the artist_id and the tracks of the *other_artists* which were artists popular but not found in kworb dataset. We will do this by using the **spotipy** API functionality "search". 
+4. We will search for the artist_id and the tracks of the *other_artists* which were artists popular but not found in kworb dataset. We will do this by using the **spotipy** API functionality "search". Once we found the result, we will realize that it does not return artists but it returns tracks whose artist is similar to the queried one. In order to see which artists is the one that we have queried and to retrieve their artist_id, we will **go over the json returned** and inspect whether we find and artist that matches or is very similar to the queried one. To do so, we will use the **Levenshtein** distance between two strings (from __aux_utils.py__ function).
+
+5. We will put them together and avoid any duplicate entries
+
+6. Use the **executemany** command to allow uploading a list of tuples (the joined dataframe converted to tuples) into the **master_artist** table. Wit this, we will end the artist dataset creation and we are all set to go for the master_track and rel_artist_track in the following notebooks.
 
 
+### __02_Master_Track_Creation__
 
 ## 1.4 Problems
 
