@@ -83,6 +83,7 @@ This table should have as PK the artist_id to avoid inserting an artist_id that 
 | master_track | song_id   | varchar() | Y  |
 | master_track | song_name | varchar() | N  |
 | master_track | peak_date | date      | N  |
+| master_track | streams | bigint      | N  |
 
 </center>
 
@@ -181,6 +182,43 @@ This script relies on the __aux_utils.py__ which has the credentials and functio
 
 
 ### __02_Master_Track_Creation__
+
+
+This script relies on the __aux_utils.py__ which has the credentials and functions to connect to Spotify API.
+
+The main goal of this script is to perform two tasks to create the **master_track** table:
+
+- Go to kworb database and get the top 30 songs for each artists that we have as "is_main = 1"
+- Go to Spotify API and search for the "Top Tracks" (built-in function in Spotipy) (retrieves 10 tracks) for that artist. 
+
+1. Query the **master_artist** table to retrieve all the artists from the previous step. Make 2 dataframes, one for the "is_main = 1" artists and another one for the "other" artists.
+
+2. Query the "kworb" database. Now the queries will be by artist, as they follow always the same structure "https://kworb.net/spotify/artist/<artist_id>.html". We will make one requests per artist, hence we will parse the returned html table. This table is a table of tracks, its peak date, the featuring artists ("With" column) and the number of streams (will be used as a measure of popularity for that song). This table will have then as columns: "Peak Date", "Track", "With", "Streams". Where Track is only the name of the track, in order to find the track_id, we need to parse the "href" for that text. 
+
+3. Since we are looking at the html table, in order to assure that the track_id we retrieve analyzing the href of the table match the name of the track, we will create a dictionary mapping the "Track" (track_name) with the "track_id" (the ID that we will retrieve from the href). This dictionary will be used to create a new column named "track_id" with the track_id already computed in that dataframe for the songs of that artists. Then, we sort the dataframe descendingly by number of Streams and pick the **30 most popular songs for that artist**. 
+
+4. For those songs that are "is_main = 0", we will query the "artist_id" in the Spotify API and retrieve all the results that Spotipy returns (10 most popular tracks per artist). Here, we don't have the Peak Date but we know the "release date" of the album, so we will use it as a proxy for the "Peak Date". Moreover, here we don't have info about the "Streams", hence, to denote that it is a song that is not retrieved from "kworb" but from the Spotify API, in the Streams column we will put a **-1**.
+
+5. We insert each part in the **master_tracks**
+
+
+### __03_Rel_Artist_Track_Creation__
+
+This script relies on the __aux_utils.py__ which has the credentials and functions to connect to Spotify API.
+
+The main goal of the script is to create the **rel_artist_track**, a table which will serve as a way to know which artist takes part in a song and viceversa, which songs have the same artist. 
+
+1. Do a query in the **master_track** and **master_artist** table. Create a set of artists and a set of tracks (identifiers). This **set_artist** and **set_tracks** will be later used.
+
+2. Do a request to the same URL as we did in the 02 code, that is, go to "https://kworb.net/spotify/artist/<artist_id>.html" and now, instead of only retrieving the track_id, we will retrieve all the **artists that are either the principal artist (<artist_id> of the URL) or any artist that appears in the "With" column of that table**, with the constraint that a given artist_id in the "With" column, must exist in the **master_artist** (be a member of **set_artists**), and the given **track_id** must be in the **set_tracks**, otherwise this track_id or artist_id won't be present in the master tables. 
+
+3. We will impose that a featuring artist can be any artist we have in the **master_artists** (either is_main = 1 or not), but for the tracks, since the is_main = 1 artists' tracks were derived from the kworb database, and we are scrapping this web, it makes more sense to impose that the track_id must be one in the **master_track** where Streams > 0 (as Streams = -1 are for the tracks of the "other" artists tracks). 
+
+4. We create a big dictionary with this schema:
+    - Artist_id: opens a new dictionary with tracks as keys
+        -Track_id: tracks are keys and each key has a list:
+            - Feat artist list: is a list of the artist_id in the "With" column of the table
+
 
 ## 1.4 Problems
 

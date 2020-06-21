@@ -1,6 +1,8 @@
 import psycopg2
 import pandas as pd
 
+
+# Select anything from a table
 def select_table(cursor, table = "", sel_cols = [], direct_query = False):
     
     if len(sel_cols):
