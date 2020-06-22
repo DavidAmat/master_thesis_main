@@ -80,8 +80,8 @@ This table should have as PK the artist_id to avoid inserting an artist_id that 
 
 | table        | column    | type      | PK |
 |--------------|-----------|-----------|----|
-| master_track | song_id   | varchar() | Y  |
-| master_track | song_name | varchar() | N  |
+| master_track | track_id   | varchar() | Y  |
+| master_track | track_name | varchar() | N  |
 | master_track | peak_date | date      | N  |
 | master_track | streams | bigint      | N  |
 
@@ -95,12 +95,12 @@ For the songs that come from Spotify API (the songs for the "other_artists" inst
 
 | table            | column    | type      | PK |
 |------------------|-----------|-----------|----|
-| rel_artist_track | song_id   | varchar() | N  |
+| rel_artist_track | track_id   | varchar() | N  |
 | rel_artist_track | artist_id | varchar() | N  |
 
 </center>
 
-Recall that for the songs for the "other_artists" we will search the names of the songs, song_id and the featuring artists by means of the Spotify API. 
+Recall that for the songs for the "other_artists" we will search the names of the songs, track_id and the featuring artists by means of the Spotify API. 
 
 - After these information gets stored correctly, we will proceed to use the Spotify API again to retrieve **related artists**. This search, by setting as input an artist_id from the **master_artist** we will be able to get:
     - genres
@@ -114,8 +114,8 @@ of the **similar artists** according to Spotify (popularity, followers and genre
 
 | table             | column            | type      | PK |
 |-------------------|-------------------|-----------|----|
-| rel_artist_artist | query_artist_id   | varchar() | N  |
-| rel_artist_artist | similar_artist_id | varchar() | N  |
+| rel_artist_artist | query             | varchar() | N  |
+| rel_artist_artist | rel_art           | varchar() | N  |
 | rel_artist_artist | genre             | varchar() | N  |
 | rel_artist_artist | popularity        | int       | N  |
 
@@ -125,7 +125,7 @@ This table will have double functionality, the maximum level of atomicity will b
 
 <center>
 
-| query_artist_id | similar_artist_id | genre | popularity |
+| query | rel_art | genre | popularity |
 |-----------------|-------------------|-------|------------|
 | A               | B                 | 1     | 60         |
 | A               | B                 | 2     | 60         |
@@ -134,6 +134,17 @@ This table will have double functionality, the maximum level of atomicity will b
 </center>
 
 So to look at the genres that are more close to the query_artis_id = A we will do a SELECT DISTINCT of the column GENRE, whereas if we want to retrieve dual relationships between two artists, we will do a SELECT DISTINCT between the query and the similar artist_id columns. If we want to retrieve all the availables genres, we will only do a SELECT DISTINCT for the GENRE.
+
+We will do a final table named **master_genre** to store univocally for each artist its gender or inferred gender (see Spotify code 05):
+
+<center>
+
+| table            | column    | type      | PK |
+|------------------|-----------|-----------|----|
+| master_genre | genre   | varchar() | N  |
+| master_genre | artist_id | varchar() | N  |
+
+</center>
 
 - With these tables we are only left to create the graph, which will be explained in the next section.
 
@@ -217,11 +228,56 @@ The main goal of the script is to create the **rel_artist_track**, a table which
 4. We create a big dictionary with this schema:
     - Artist_id: opens a new dictionary with tracks as keys
         -Track_id: tracks are keys and each key has a list:
-            - Feat artist list: is a list of the artist_id in the "With" column of the table
+            - Feat artist list: is a list of the artist_id in the "With" column of the table. Before accepting any artist, we will check in the **set_artists** (both the "main" and "other" artists whether this artist_id exists in our database or not, if does not exist, we will NOT include them). 
+            - This is the most time-consuming part, taking more than 1 hour to complete the webscrapping of all the artists top 30 tracks.
+
+5. Convert the dictionary into pairs artist-track to feed the table **rel_artist_track**. 
+
+6. For the **other** artists, since they are not present in the "kworb" dataset, we will query the top 10 tracks via Spotify. Using the Spotipy function "artist_top_tracks" we retrieve the **track_id**.
+
+7. We upload all these pairs to the **rel_artist_track** also. 
+
+### __04_Rel_Artist_Artist_Creation__
+
+In this code we will try to extrack as many information as possible for each artist, retrieving the list of similar artists 100% via Spotipy.
+
+The idea is to feed the table **rel_artist_artist**. We will query one artist and we will retrieve similar artists.
+
+1. Get all the artists in our database (master_artist).
+
+2. Create a set of artists (to search if the related artist is in our database).
+
+3. For each artists, query the Spotipy function "artist_related_artists" and retrieve, for each artist_id similar to the queried one:
+    - Popularity
+    - A list of genres: loop through all the genres and append to a list all theses properties (popularity, artist_id, genre) for every genre in that list. Recall that the table "rel_artist_artist" has as many rows as genres per artist-artist pair. At each append we make sure that the artist_id of the similar artist **must be in the master_artist table**. We also correct the genre name to avoid characters like " ' " (single quote).
+
+### __05_Rel_Genre_Artist_Creation__
+
+Since the information of gender is provided in the table **rel_artist_artist** and its attributed to the "rel_artist" and not to the queried artist, we suspect that there will be some artists in the "master_artist" that will not have an associated genre. If this is the case we will **infer** the genre of the query artist (that has not been found in the rel_art column and appears in the master_artist), by looking at its rel_art and do a majority voting of the most popular genre among its related artists. If no genre is found, there will be a **undefined** genre for those cases. In case of tie, we will pick randomly the genre among the tied ones.  
+
+The main idea is to create a table **master_genre** to store this information:
+
+<center>
+
+| table            | column    | type      | PK |
+|------------------|-----------|-----------|----|
+| master_genre | genre   | varchar() | N  |
+| master_genre | artist_id | varchar() | N  |
+
+</center>
 
 
 ## 1.4 Problems
 
 - We are running intro problems in Mac with the import of psycopg2. We search for the error: https://stackoverflow.com/questions/57236722/what-does-import-error-symbol-not-found-pqencryptpasswordconn-mean-and-how-do and install two versions lower. FUNCIONA
 
-# 2. Database
+# 2. Neo4j
+
+## 2.1 Creating a Graph Model
+
+Create a graph model with the password: qrks
+
+- Path import folder: cd /Users/david/Library/Application\ Support/Neo4j\ Desktop/Application/neo4jDatabases/database-f313678c-0e5d-4cf0-bbec-5ee510a4fd59/installation-4.0.4/import
+(alias shortcut: neo_import)
+
+- Command line: 
