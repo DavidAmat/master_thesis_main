@@ -5,7 +5,7 @@ import pandas as pd
 # Select anything from a table
 def select_table(cursor, table = "", sel_cols = [], direct_query = False):
     
-    if len(sel_cols):
+    if len(sel_cols) and len(table):
         columns_selected = ", ".join(sel_cols)
         query = f""" SELECT {columns_selected} FROM {table} """
     elif direct_query:
