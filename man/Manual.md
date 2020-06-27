@@ -148,6 +148,10 @@ We will do a final table named **master_genre** to store univocally for each art
 
 - With these tables we are only left to create the graph, which will be explained in the next section.
 
+### Credentials
+
+- Username: david
+- Password: pg
 ## 1.2 Data
 
 All the data will come either from scrapping https://kworb.net/ and the Spotify API.
@@ -280,4 +284,23 @@ Create a graph model with the password: qrks
 - Path import folder: cd /Users/david/Library/Application\ Support/Neo4j\ Desktop/Application/neo4jDatabases/database-f313678c-0e5d-4cf0-bbec-5ee510a4fd59/installation-4.0.4/import
 (alias shortcut: neo_import)
 
-- Command line: 
+## 2.2 Defining Graph Model
+
+The datasets downloaded from PostgreSQL will be stored in Codigos/Spotify/data/psql_out.
+
+### a) Master Track
+
+- Remove the ";" of the track_names
+
+### b) Master Artist
+
+- Since we want our Artists to have a popularity score and not all artists have such score (which comes from the **rel_artist_artist**) we will do the following:
+
+    - Select rel_art, popularity from that table as a DISTINCT table to link each artist with each popularity
+    - For those artists in the Master Artists that don't have popularity associated, we will look at all of its rel_art and do the mean of the popularity to assign that popularity to the artist.
+    - The resulting dataframe will be the one that will be downloaded as .CSV to feed the Neo4j graph
+
+
+### c) Master Genre
+
+Select all the genres (distinct) in the master_genre. 
