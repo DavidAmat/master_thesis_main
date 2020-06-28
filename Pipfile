@@ -17,6 +17,7 @@ psycopg2 = "==2.7.7"
 psycopg2-binary = "==2.7.7"
 beautifulsoup4 = "*"
 lxml = "*"
+py2neo = "*"
 
 [requires]
 python_version = "3.7"

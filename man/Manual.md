@@ -284,9 +284,12 @@ Create a graph model with the password: qrks
 - Path import folder: cd /Users/david/Library/Application\ Support/Neo4j\ Desktop/Application/neo4jDatabases/database-f313678c-0e5d-4cf0-bbec-5ee510a4fd59/installation-4.0.4/import
 (alias shortcut: neo_import)
 
-## 2.2 Defining Graph Model
+- Use the Neo4j Desktop app to create it.
+
+## 2.2 06_Downloading_PostgreSQL_csv
 
 The datasets downloaded from PostgreSQL will be stored in Codigos/Spotify/data/psql_out.
+Such downloads are managend through this notebook (title)
 
 ### a) Master Track
 
@@ -304,3 +307,350 @@ The datasets downloaded from PostgreSQL will be stored in Codigos/Spotify/data/p
 ### c) Master Genre
 
 Select all the genres (distinct) in the master_genre. 
+
+### d) Relationships
+
+We create the relationships querying the corresponding table:
+
+- GEN_ART: genre -> artist_id from master_genre
+- ART_TR: artist_id -> track_id from rel_artist_track
+- REL_ART: artist_id1 -> artist_id2 from rel_artist_artist (query, rel_art)
+
+All these csv files are stored in **/Users/david/Google Drive/16. Master BigData/5 - Modulos/Modulo 10 - TFM/2. TFM/Codigos/Spotify/data/psql_out**.
+
+**We have to move manually those .csv files to the IMPORT folder for the Database instance created:** 
+
+```bash
+/Users/david/Library/Application Support/Neo4j Desktop/Application/neo4jDatabases/database-ada73e8c-396c-4507-82cc-758b5f072ea4/installation-4.0.4/import
+```
+
+## 2.3 07_Cypher_Database_Graph_Creation
+
+Once we have added a Database named Spotify to our Project TFM we need  to write the Cypher queries that will read the .csv files in the "import" folder and upload them as nodes and relationships.
+
+
+<img src="../imgs/img1.png" width="500"/>
+
+### a) Define Database Schema
+
+#### Nodes
+- t:Track
+    - track_id
+    - track_name
+    - peak_date
+    - streams
+- a:Artist
+    - artist_id
+    - popularity
+    - artist_name
+    - is_main
+    
+- g:Genre
+    - genre_id
+
+#### Relationships
+
+- GEN_ART: artist - genre
+- ART_TR: artist - track
+- REL_ART: artist - artist
+
+### b) Add the constraints
+
+- Since we don't want any node to be duplicated in terms of artist_id, track_id or genre, we will add beforehand the constraints regarding such nodes (which do not exist yet):
+
+```cypher
+CREATE CONSTRAINT ON (t:Track) ASSERT t.track_id IS UNIQUE 
+CREATE CONSTRAINT ON (a:Artist) ASSERT a.artist_id IS UNIQUE 
+CREATE CONSTRAINT ON (g:Genre) ASSERT g.genre_id IS UNIQUE 
+```
+This is done because when doing a MERGE, Cypher has to check if that node already exists, so INDEXING its property of ID (track_id, artist_id, genre_id) will ease that task and reduce LOAD time.
+
+### c) Artists
+
+Upload the artist nodes taking into account that "popularity" is an integer and "is_main" should be a boolean, not a "True" / "False" string!
+
+```cypher
+LOAD CSV WITH HEADERS FROM "file:///master_artist.csv" AS line FIELDTERMINATOR ';'
+MERGE (a:Artist {  
+                    artist_id: line.artist_id,
+                    artist_name: line.artist_name,
+                    popularity: toInteger(line.popularity),
+                    is_main: (case line.is_main when 'True' then true else false end)
+                     })
+```
+
+### d) Tracks
+
+Here we have to remember to convert the peak_date string to a date and streams to integer:
+
+```cypher
+LOAD CSV WITH HEADERS FROM "file:///master_track.csv" AS line FIELDTERMINATOR ';'
+MERGE (t:Track {  
+                    track_id: line.track_id,
+                    track_name: line.track_name,
+                    streams: toInteger(line.streams),
+                    peak_date: date(line.peak_date)
+                     })
+```
+
+
+### d) Genre
+
+Finally, we add the genre names as genre_id, since those are simply strings and a ID will not help in easing the identification of genres, which are only 1,000 strings more or less.
+
+### e) Create index on names
+
+After all nodes have been added with its properties, now we can set an index for the artists and track names to ease querying by a certain name.
+
+```cypher
+CREATE INDEX ArtistName FOR (a:Artist) ON (a.artist_name) 
+CREATE INDEX TrackName FOR (t:Track) ON (t.track_name) 
+```
+
+### f) Add the relationships
+
+Here we add the 3 relationships that we have presented before:
+
+```cypher
+LOAD CSV WITH HEADERS FROM "file:///rel_GEN_ART.csv" AS line FIELDTERMINATOR ';' 
+    MATCH (g:Genre {genre_id: line.genre})
+    MATCH (a:Artist {artist_id: line.artist_id})
+    MERGE (g)-[:GEN_ART]->(a)
+```
+
+```cypher
+LOAD CSV WITH HEADERS FROM "file:///rel_ART_TR.csv" AS line FIELDTERMINATOR ';' 
+    MATCH (a:Artist {artist_id: line.artist_id})
+    MATCH (t:Track {track_id: line.track_id})
+    MERGE (a)-[:ART_TR]->(t)
+```
+
+```cypher
+LOAD CSV WITH HEADERS FROM "file:///rel_REL_ART.csv" AS line FIELDTERMINATOR ';' 
+    MATCH (a1:Artist {artist_id: line.artist_id1})
+    MATCH (a2:Artist {artist_id: line.artist_id2})
+    MERGE (a1)-[:REL_ART]->(a2)
+```
+
+### g) BackUp
+
+We finally do a BackUp to store in the "import" folder a .bk copy of the actual database.
+
+
+## 2.4 08_Graph_Analysis
+
+Contains the most used queries to validate that everything has been added properly.
+
+Example:
+```cypher
+// Most Streamed songs, getting artist and genre
+MATCH (a:Artist)-[:ART_TR]->(t:Track)
+WITH a, t
+ORDER BY t.streams DESC
+LIMIT 20
+MATCH (g:Genre)-[:GEN_ART]->(a:Artist)
+RETURN a, g, t                  
+```
+
+
+## 2.5 09_Neo4j_Python_Connection
+
+We install "py2neo" to query the Spotify Database with a python driver.
+We can retrieve the results in a dataframe.
+
+
+## 2.6 10_Create_List_Song_Artist_Query_Youtube
+
+Now is a crucial step, we need to decide if we are going to download all songs or just a few. The idea is that if we manage to download all audios, we will be able to select as many songs as we want for each artist when training the neural network, otherwise, if we need more data we will be stucked and need to re-run again this code to generate a much wider list of artist-track.
+
+Data is exported to /Spotify/data/01_queries_yt where there is a .csv named queries.csv that will be the file that will take the queue for sending jobs to each instance.
+
+# 3. AWS
+
+## 3.1 PuTTY
+
+Using XQuartz, launch a terminal and put tfm, navigate to the folder where the .pem exist and convert it to .ppk:
+
+```bash
+sudo puttygen TFM_London.pem -o TFM_London.ppk -O private
+```
+
+## 3.2 AWS Parallel Cluster
+
+1. Create a new user:
+
+- User: tfm
+
+- Enable Programmatic access
+
+- Credentials:
+    Look in Codigos/credentials/user_tfm
+
+2. Install both parallel cluster and awscli python packages in the Codigos/AWS folder (which is linked with a different pipenv). 
+
+3. Parallel Cluster configuration is written in /Users/david/.parallelcluster/config
+
+4. Now we are going to test which configuration does the instance needs to initialize with selenium downloaded.
+
+### 3.2.1 Install Selenium on a t2.small
+
+- Named: test_selenium
+- SSH into it (assuming we are on the /Codigos/AWS directory)
+
+```bash
+# First protect the .pem file (only the first time)
+chmod 400 TFM_London.pem
+
+# Run the command
+tfm
+cd AWS/
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ec2-user@ec2-35-179-75-206.eu-west-2.compute.amazonaws.com
+```
+
+Inside the **test_selenium** instance do:
+
+```bash
+sudo su
+sudo yum update -y
+
+# Install python 3.7 and pipenv
+sudo yum install python37
+
+# Get pip
+curl -O https://bootstrap.pypa.io/get-pip.py
+
+#Run it
+python3 get-pip.py --user
+
+#Install pipenv
+sudo pip3 install pipenv
+
+#Add pipenv to path
+export PATH=/usr/local/bin:$PATH
+
+# But is better to modify the ~/.bashrc file and add this
+# this will enable localization of the pipenv in the PATH variable
+export PATH=/usr/local/bin:$PATH
+
+# mkdir scrap
+mkdir scrap
+
+# This time we will not download the pipfile from the github repo
+# what we will do is to download the package by our own
+pipenv shell
+
+touch requirements.txt
+nano requirements.txt
+
+# Copy and paste this list
+pipenv install pandas==1.0.5
+pipenv install numpy==1.19.0
+pipenv install tqdm==4.46.1
+pipenv install boto3==1.14.12
+pipenv install v_log==1.0.1
+pipenv install awscli
+pipenv install jupyter
+
+# Configure the AWS credentials for the London region
+aws configure
+
+# Change the Security Group Inbound rule for TCP in port range 8888
+# since we will need to acces through Jupyter
+
+# Go to the sg and create a Custom TCP for port 8888 for source 0.0.0.0/0
+
+# Generate the config to allow running jupyter notebook and accessing through another IP
+pipenv run jupyter notebook --generate-config
+
+# Configuration is written in /root/.jupyter/jupyter_notebook_config.py
+# Edit it
+vi /root/.jupyter/jupyter_notebook_config.py
+/
+c.NotebookApp.ip = '*'
+
+# Save and quit. Now run finnaly:
+pipenv run jupyter notebook --no-browser --allow-root
+
+# Copy the http and change the DNS for the IP (in our local browser)
+http://ip-172-31-5-84.eu-west-2.compute.internal:8888/?token=e63b5cb4248372d1f8fd35c88bdddfbb4741ca279a75b740
+
+# Change it to
+http://35.179.75.206:8888/?token=e63b5cb4248372d1f8fd35c88bdddfbb4741ca279a75b740
+
+# INSTALL SELENIUM
+
+## Install chromedriver
+sudo su
+yum -y install libX11 
+cd /tmp/
+sudo wget https://chromedriver.storage.googleapis.com/83.0.4103.39/chromedriver_linux64.zip
+sudo unzip chromedriver_linux64.zip
+sudo mv chromedriver /usr/bin/chromedriver
+chromedriver --version
+# IMPORTANT! make SURE that the chromedriver version matchs the google-chrome --version below
+
+## Install binary Google Chrome
+sudo curl https://intoli.com/install-google-chrome.sh | bash
+sudo mv /usr/bin/google-chrome-stable /usr/bin/google-chrome 
+google-chrome --version && which google-chrome
+#IMPORTANT! make SURTE this version of google chrome matches the chromedriver
+
+## Install Selenium
+#su ec2-user #change user and go to the scrap/ folder and run
+pipenv shell
+pipenv install selenium
+```
+
+We can try a Python Script to check that it works:
+
+```python
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.options import Options
+
+#Selenium options
+options = Options()
+options.add_argument("--headless")
+options.add_argument("window-size=1400,1500")
+options.add_argument("--disable-gpu")
+options.add_argument("--no-sandbox")
+options.add_argument("start-maximized")
+options.add_argument("enable-automation")
+options.add_argument("--disable-infobars")
+options.add_argument("--disable-dev-shm-usage")
+
+url = 'https://github.com/'
+
+driver = webdriver.Chrome(options=options)
+
+# Navigate to github.com
+driver.get(url)
+
+# Extract the top heading from github.com
+text = driver.find_element_by_class_name('h000-mktg').text
+
+print(text)
+```
+
+### 3.2.2 FileZilla to transfer the queries.csv
+
+We need inside this instance the file in which we have all the artists and tracks to search for. Hence, we will connect to the EC2 instance with FileZilla:
+
+- First add the key file as they say in here:
+
+https://stackoverflow.com/questions/16744863/connect-to-amazon-ec2-file-directory-using-filezilla-and-sftp
+
+- What it is not explained is that you have to go to the File > Site Manager Add and choose:
+    - Protocolo: SFTP - SSH File Transfer Protocol
+    - Servidor: <paste_here_the_DNS_of_the_instance>
+    - Puerto: leave as empty
+    - Modo de acceso: Archivo de claves
+    - Usuario: ec2-user
+    - Archivo de claves: select the .pem file
+
+- Drag and drop the queries.csv file in the /Spotify/data/01_queries_yt (created in the 2.6 Section: 10_Create_List_Song_Artist_Query_Youtube)
+
+- We will create a directory named "/data" inside the "scrap" folder in the EC2 instance. Since the folder is created with the "root" user, we will not be able to drag and drop to data/. Hence, we drag and drop to the ec2-user folder and then in the terminal, as root, we will move the queries.csv to the data/ folder.
