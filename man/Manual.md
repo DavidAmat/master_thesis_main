@@ -654,3 +654,77 @@ https://stackoverflow.com/questions/16744863/connect-to-amazon-ec2-file-director
 - Drag and drop the queries.csv file in the /Spotify/data/01_queries_yt (created in the 2.6 Section: 10_Create_List_Song_Artist_Query_Youtube)
 
 - We will create a directory named "/data" inside the "scrap" folder in the EC2 instance. Since the folder is created with the "root" user, we will not be able to drag and drop to data/. Hence, we drag and drop to the ec2-user folder and then in the terminal, as root, we will move the queries.csv to the data/ folder.
+
+### 3.2.3 Create a Bucket in S3
+
+- Create a bucket named: tfmdavid
+- Location: EU-WEST-2 (London)
+
+- We will create a folder named urls/ to store all the artists song's urls in youtube to be downloaded.
+
+### 3.2.4 Check Selenium in the EC2 instance
+
+```bash
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ec2-user@ec2-35-179-15-53.eu-west-2.compute.amazonaws.com
+
+sudo su
+cd scrap
+pipenv shell
+pipenv run jupyter notebook --no-browser --allow-root
+```
+
+In the test/ folder we run the test_youtube.ipynb as a first attempt to handle this scrapping.
+
+< EXPLAIN the CODE in the EC2 instance>
+
+### 3.2.5 Create PostGreSQL as RDS service
+
+1. We will follow the tutorial in: https://aws.amazon.com/getting-started/tutorials/create-connect-postgresql-db/
+
+dbname: postgres
+User: david
+Password: qrksjfutivuf1
+
+**VERY IMPORTANT!!**: since we are going to make inbound queries (INSERT INTO) this database, we will modify the security group to allow INBOUND traffic for any source (0.0.0.0/0) at port 5432.
+
+2. Use Pg_Admin to access to the DB server that is launched in the RDS section. See the ENDPOINT. 
+- Add a Server
+- Host: ENDPOINT address
+- Port: 5432
+
+3. Install in the EC2 instance the following to enable the installation of psycopg2:
+
+```bash
+sudo yum groupinstall "Development Tools"
+yum install postgresql-devel
+sudo yum install python3-devel
+sudo yum install postgresql-libs
+pipenv install psycopg2
+```
+
+It is possible that it does not allow the installation of psycopg2 due to the gcc requirement... If so, try to stop the instance and reboot it again. After that what I have also tried is to connect to the ENDPOINT through:
+
+```bash
+psql -h tracksurl.czjs6btlvfgd.eu-west-2.rds.amazonaws.com -p 5432 - U david
+```
+To get the whole history of commands done, go to AWS/hist/postgresql_install/hist_postgresql_install.txt
+
+4. Go to Jupyter Notebook and import psycopg2 correctly to check the installation and from now on you can query the RDS service by:
+
+```python
+ENDPOINT="tracksurl.czjs6btlvfgd.eu-west-2.rds.amazonaws.com"
+PORT="5432"
+USR="david"
+REGION="eu-west-2"
+DBNAME="postgres"
+PSSWD=["qrks","jfut","iv","uf","1"]
+try:
+    conn = psycopg2.connect(host=ENDPOINT, port=PORT, database=DBNAME, user=USR, password=''.join(PSSWD))
+    cur = conn.cursor()
+    cur.execute("""SELECT * from results""")
+    query_results = cur.fetchall()
+    print(query_results)
+except Exception as e:
+    print("Database connection failed due to {}".format(e))            
+                
+```
