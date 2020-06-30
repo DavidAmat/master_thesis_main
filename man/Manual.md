@@ -550,7 +550,9 @@ pipenv install boto3==1.14.12
 pipenv install v_log==1.0.1
 pipenv install awscli
 pipenv install jupyter
-
+pipenv install requests
+pipenv install beautifulsoup4
+pipenv install lxml
 # Configure the AWS credentials for the London region
 aws configure
 
@@ -565,8 +567,10 @@ pipenv run jupyter notebook --generate-config
 # Configuration is written in /root/.jupyter/jupyter_notebook_config.py
 # Edit it
 vi /root/.jupyter/jupyter_notebook_config.py
-/
+/c.NotebookApp.ip
+i
 c.NotebookApp.ip = '*'
+:wq!
 
 # Save and quit. Now run finnaly:
 pipenv run jupyter notebook --no-browser --allow-root
@@ -728,3 +732,132 @@ except Exception as e:
     print("Database connection failed due to {}".format(e))            
                 
 ```
+
+### 3.2.6 Install Parallel Cluster on AWS virtualenv
+
+We follow: https://docs.aws.amazon.com/parallelcluster/latest/ug/install-virtualenv.html
+Go to the folder Codigos/AWS and do pipenv shell.
+Install boto3, awscli and aws-parallelcluster.
+Verify installation:
+
+```bash
+pcluster version
+```
+
+- Create an image of the instance (t2.small) where the Selenium and WebScrapping in youtube has been done. There has been a "silly.py" file done in scrap/tests to test the ParallelCluster.  To create the AMI, we go to the AWS Console. We will name it "scrap_image"
+
+- We copy its AMI ID: ami-0c09047f8c93915e6
+
+- We follow instructions of: https://docs.aws.amazon.com/parallelcluster/latest/ug/getting-started-configuring-parallelcluster.html
+
+```bash
+pcluster configure
+```
+
+- Modify the script /Users/david/.parallelcluster/config:
+```bash
+code /Users/david/.parallelcluster/config
+
+# Create a session for the cluster named: scrap
+[aws]
+aws_region_name = eu-west-2
+
+[global]
+cluster_template = default
+update_check = true
+sanity_check = true
+
+[aliases]
+ssh = ssh {CFN_USER}@{MASTER_IP} {ARGS}
+
+[cluster default]
+key_name = TFM_London
+base_os = alinux2
+scheduler = awsbatch
+custom_ami = ami-0c09047f8c93915e6 # this is the AMI of the t2.small instance
+master_instance_type = t2.small
+compute_instance_type = m5.large # SEE COMMENT BELOW IMPORTANT
+min_vcpus = 1
+max_vcpus = 100
+vpc_settings = default
+desired_vcpus = 1
+
+[vpc default]
+vpc_id = vpc-008fe5e559a705470
+master_subnet_id = subnet-048d13c6988e9a6ff
+compute_subnet_id = subnet-06725b453d0fd761d
+```
+IMPORTANT! we see that by setting a t2.small instance type there is an error saying that compute_instance_type 't2.small' is not supported by awsbatch in region 'eu-west-2'. We tried to do so in eu-west-1 resulting in the same problem. Finally, we decide to create a c5.large instance, it creates the cluster but when ssh into the compute instance from the master instance, we see that it has not INHERITED the custom AMI. We then try to launch manually an EC2 instance of c5.large type from that AMI and realize that no options is given for this type of instance, so we search for a instance type that it allows us BOTH to create the instance from that AMI and to create the cluster using pcluster create. This is the case for "m5.large". This step does not work neither. When we ssh into it we see that no folder scrap/ is present and the AMI ID where the compute node was launched is not the AMI that we have set (although the AMI ID for the MASTER node is indeed the AMI ID of our custom AMI). We proceed to set the same subnet to the awsbatch cluster for the master node and the compute nodes. It fails in the launch process. Finally, we try to change the shceduler from awsbatch to torque.
+
+- Run the creation of the cluster:
+```bash
+pcluster create scraptorque
+
+#Result
+Beginning cluster creation for cluster: scraptorque
+WARNING: The configuration parameter 'scheduler' generated the following warnings:
+The job scheduler you are using (torque) is scheduled to be deprecated in future releases of ParallelCluster. More information is available here: https://github.com/aws/aws-parallelcluster/wiki/Deprecation-of-SGE-and-Torque-in-ParallelCluster
+Creating stack named: parallelcluster-scraptorque
+Status: parallelcluster-scraptorque - CREATE_COMPLETE
+MasterPublicIP: 3.9.163.249
+ClusterUser: ec2-user
+MasterPrivateIP: 10.0.0.48
+```
+
+- Now we follow the tutorial https://docs.aws.amazon.com/parallelcluster/latest/ug/tutorials_03_batch_mpi.html:
+
+```bash
+pcluster ssh scrap -i "../credentials/AWS_KeyPair_London/TFM_London.pem"
+
+# Create a job file: nano job1.sh
+# ------ BOF
+#!/bin/bash
+cd /home/ec2-user/scrap/test
+./silly.py 5 prova5
+# ------ EOF
+# Launch the job 
+awsbsub -jn test5 -cf job1.sh
+watch --interval=0.5 qstat
+```
+
+#### 3.2.7 Workaround trobleshooting
+
+Since the time of creation of each compute node is quite huge due to all the installations that may happen for this node to run un the ParallelCluster we will opt for choosing an already existing AWS ParallelCluster AMI.
+
+We will follow https://docs.aws.amazon.com/parallelcluster/latest/ug/aws-parallelcluster-ug.pdf and try to launch this instance from the IMAGE of the eu-west-2 region and try to install everything (seleniums and company...) that the instance needs. After that, we will create a image of that modified instance but this AMI will be now a ParallelCluster AMI so the launch times will be shortened.
+
+1. Go to: https://github.com/aws/aws-parallelcluster/blob/v2.7.0/amis.txt and select the one from alinux2 eu-west-2: ami-018bfff85c6d9a8b1
+
+2. Launch instance in Community AIs (filter by ami-018bfff85c6d9a8b1)
+
+3. Commands
+
+```bash
+sudo su
+sudo yum update
+
+# Install python, pipenv, requirements...
+
+
+# Install selenium
+# FOLLOW Instructions in step 3.2.1
+```
+
+4. Then we have to realize how to run commandas as sudo su, being ec2-user:
+
+```bash
+#!/usr/bin/env bash
+sudo -i -u root bash << EOF
+/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/test/silly.py 16 test16
+/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/test/silly.py 17 test17
+/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/test/silly.py 18 test18
+EOF
+```
+
+We will follow this strategy (called heredoc) to run the script of the .py that we create for the extraction of youtube addresses.
+
+## 3.3 Prepare bash jobs
+
+As seen before, we have to create a .py script that will take the dataframe index that it has to inspect, will load the "queries.csv", and filter for that index row to retrieve the song and artist that it should look for. We will use every instance to run multiple times this script, as seen in the previous example with the arguments test16, 17 and 18.
+
+### 3.3.1 run_scrap.py
