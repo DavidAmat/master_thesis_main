@@ -773,10 +773,10 @@ ssh = ssh {CFN_USER}@{MASTER_IP} {ARGS}
 [cluster default]
 key_name = TFM_London
 base_os = alinux2
-scheduler = awsbatch
-custom_ami = ami-0c09047f8c93915e6 # this is the AMI of the t2.small instance
+scheduler = torque
+custom_ami = ami-0d323793ce47854a1
 master_instance_type = t2.small
-compute_instance_type = m5.large # SEE COMMENT BELOW IMPORTANT
+compute_instance_type = t2.small
 min_vcpus = 1
 max_vcpus = 100
 vpc_settings = default
@@ -791,17 +791,17 @@ IMPORTANT! we see that by setting a t2.small instance type there is an error say
 
 - Run the creation of the cluster:
 ```bash
-pcluster create scraptorque
+pcluster create ClusterScrapping
 
 #Result
-Beginning cluster creation for cluster: scraptorque
+Beginning cluster creation for cluster: ClusterScrapping
 WARNING: The configuration parameter 'scheduler' generated the following warnings:
 The job scheduler you are using (torque) is scheduled to be deprecated in future releases of ParallelCluster. More information is available here: https://github.com/aws/aws-parallelcluster/wiki/Deprecation-of-SGE-and-Torque-in-ParallelCluster
-Creating stack named: parallelcluster-scraptorque
-Status: parallelcluster-scraptorque - CREATE_COMPLETE
-MasterPublicIP: 3.9.163.249
+Creating stack named: parallelcluster-ClusterScrapping
+Status: parallelcluster-ClusterScrapping - CREATE_COMPLETE
+MasterPublicIP: 35.176.37.132
 ClusterUser: ec2-user
-MasterPrivateIP: 10.0.0.48
+MasterPrivateIP: 10.0.0.239
 ```
 
 - Now we follow the tutorial https://docs.aws.amazon.com/parallelcluster/latest/ug/tutorials_03_batch_mpi.html:
@@ -848,16 +848,69 @@ sudo yum update
 ```bash
 #!/usr/bin/env bash
 sudo -i -u root bash << EOF
-/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/test/silly.py 16 test16
-/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/test/silly.py 17 test17
-/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/test/silly.py 18 test18
+/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/code/main_scrap.py 0 100
 EOF
 ```
 
-We will follow this strategy (called heredoc) to run the script of the .py that we create for the extraction of youtube addresses.
+What this will do is run the scrapping for the rows 0, 1, 2..., 100 from the dataframe queries.csv.
 
-## 3.3 Prepare bash jobs
+We will follow this strategy (called heredoc) to run the script of the .py that we create for the extraction of youtube addresses and feed the result in the PostgreSQL database that we have setup, querying the table "results".
 
-As seen before, we have to create a .py script that will take the dataframe index that it has to inspect, will load the "queries.csv", and filter for that index row to retrieve the song and artist that it should look for. We will use every instance to run multiple times this script, as seen in the previous example with the arguments test16, 17 and 18.
+## 3.3 How to run jobs in the cluster?
 
-### 3.3.1 run_scrap.py
+1. Trhee scripts are needed:
+    - create_job.py: creates the list of files job_X.sh (where X is the job number, which is the batch that we will submit to a compute instance). It creates a folder jobs/ where it stores all the jobs bash scripts.
+
+    - qsub_jobs.sh: are the jobs that are executed as qsub, where qsub executes inside a for loop in bash all the job_X.sh created by create_job.py. When executed, it must be executed as ec2-user! 
+
+    - main_scrap.py: it has the code that does the web scrapping. It takes as arguments two values: initial_row and final_row. These "rows" refer to the "queries.csv" dataframe, which is loaded at the start of the script to get all the list of artists and songs that will be scrapped. With the initial and final rows what we do is to slice the dataframe to only get the rows between initial and final row (both edges are included). So each execution of this function will do several songs scrapping, inside a for loop, independently ones from the others, so they are scrapped sequentially in the for loop.  **To run this script, it is assumed that you should be the ROOT user as well as execute it with the python interpreter from the pipenv!!!**. This means that instead of submitting a job that calls: python main_scrap.py, we will submit a job with the path to the python interpreter (with selenium installed and the psycopg2 library to connect to the DB instance). The path for the python interpret should be something like `/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python`. We are always working with global paths to avoid having to change directories each time. Hence, to run this script we will reference to its path inside the compute node: /home/ec2-user/scrap/code/main_scrap.py
+
+2. Once we have such scripts ready we need to recap a little bit all the steps taken so far:
+
+    - We have first generate a table (queries.csv) of all songs and artists to scrap.
+
+    - We have launched a t2.small instance to test selenium (t2.small) and develop our main_scrap.py code. This instance **was launched using a AWS ParallelCluster AMI** (read manual  https://docs.aws.amazon.com/parallelcluster/latest/ug/aws-parallelcluster-ug.pdf on page 104). We have the list of AMIs that should be selected for each region, so we choose the AMI for "alinux2" and eu-west-2: ami-018bfff85c6d9a8b1. Remember, this is just the AMI id of the instance we are going to modify. On top of that instance we have to follow all the instructions given on "3.2.1" section to set up correctly this instance to support both PSQL and SELENIUM installing the chromedriver, etc... 
+
+    - Once this instance is up and running, we test the python script with some samples to see that it works well and does the insert to the PostgreSQL in the Table "results". If it succeeds we proceed.
+
+    - Create an AMI for that instance. This will be the "base_scrap" AMI, recall the AMI "ami-0d323793ce47854a1" we have set in the "custom_ami" property in the ParallelCluster configuration file, this is the AMI that we want to act both as Master and Compute nodes, the instance that we now is up and running to execute selenium and postgresql and that it was initially a ParallelCluster AMI.
+
+    - Once it is created, we launch the creation of the cluster: ClusterScrapping.
+
+    - Once it is created, we SSH into the Master node. Realize that the Master node is inside a Public Subnet, but you will see how the compute nodes are inside a Private Subnet, hence, they do not have a IP associated. They can only be accessed in this setting through the Master Node.
+
+    - We go to the scrap/code folder and run the pipenv shell in order to activate the python environment (in theory not necessary if we are calling the full path of the python executable `/root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python`). Run:
+
+    ```bash
+    # Modify first create_job.py
+    nano create_job.py
+
+    # We have to add the number of rows per batch that we want
+    # as well as the size of the total table "queries.csv"
+
+    # After that, execute the script:
+     /root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python  create_job.py
+    ```
+
+    - You will see a folder named "jobs/" created with plenty of "job_X.sh". If we inspect one of these files:
+
+    ```bash
+    #!/usr/bin/env bash
+    sudo -i -u root bash << EOF
+    /root/.local/share/virtualenvs/scrap-9ZJEulFg/bin/python /home/ec2-user/scrap/code/main_scrap.py 200 299
+    echo 'Fin'
+    EOF
+    ```
+    We see the heredoc technique to run as root the python interpreter and the main_scrap.py. Recall that this script must be executed as ROOT, but when the Compute instance receives the job and executes this bash script, since it has just started the node as "ec2-user" we have to make something to execute that python script as ROOT. This script will tell that instance to read the "queries.csv" table and scrap all songs from rows 200 to 299 included. 
+
+    - After such files are generated, we then proceed to execute their **submission** to the cluster. In this case since we have 83957 rows and 100 rows are done per job (this is what we know as batch), there will be 840 jobs (job_0.sh, job_1.sh, ..., job_839.sh). We must remember the highest number X of the job_X for the next step.
+
+    - We will create the qsub_jobs.sh script, which is a full bash script that does a loop from 0 to X (839) and run at each time of the loop the qsub command on that job inside the jobs folder:
+    ```bash
+    for i in {0..839}
+    do
+        qsub jobs/job_$i.sh
+    done
+    ```
+
+    - This will run submitting all jobs in the cluster. First Compute instances are the ones that last more in order to launch, since they have to launch a new instance from the custom AMI provided... 
