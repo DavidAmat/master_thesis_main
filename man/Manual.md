@@ -465,7 +465,7 @@ Now is a crucial step, we need to decide if we are going to download all songs o
 
 Data is exported to /Spotify/data/01_queries_yt where there is a .csv named queries.csv that will be the file that will take the queue for sending jobs to each instance.
 
-# 3. AWS
+# 3. AWS Youtube Scrap
 
 ## 3.1 PuTTY
 
@@ -914,3 +914,100 @@ We will follow this strategy (called heredoc) to run the script of the .py that 
     ```
 
     - This will run submitting all jobs in the cluster. First Compute instances are the ones that last more in order to launch, since they have to launch a new instance from the custom AMI provided... 
+
+    - We can monitor all the jobs by executting qstat:
+
+    ```bash
+    qstat -r # to list only running jobs
+    pbsnodes # to see which are the running nodes
+
+    # For example for one of the instances
+    ip-10-0-44-146
+     state = job-exclusive
+     power_state = Running
+     np = 1
+     ntype = cluster
+     jobs = 0/145.ip-10-0-0-239.eu-west-2.compute.internal
+     status = opsys=linux,uname=Linux ip-10-0-44-146 4.14.181-140.257.amzn2.x86_64 #1 SMP Wed May 27 02:17:36 UTC 2020 x86_64,sessions=5044 15230,nsessions=2,nusers=2,idletime=6803,totmem=2039140kb,availmem=1213468kb,physmem=2039140kb,ncpus=1,loadave=2.40,gres=,netload=525966268,state=free,varattr= ,cpuclock=Fixed,macaddr=06:f4:77:19:0b:ce,version=6.1.2,rectime=1593637607,jobs=145.ip-10-0-0-239.eu-west-2.compute.internal
+     mom_service_port = 15002
+     mom_manager_port = 15003
+    ```
+
+
+    ### 3.2.7 Export PostgreSQL to track_url table in the local PostgreSQL
+
+    - We go to TFM > BBDD and we will make an extraction of the table in AWS RDS in order to disconnect that database and work with a local copy of it.
+
+    ```bash
+    pg_dump --host tracksurl.czjs6btlvfgd.eu-west-2.rds.amazonaws.com --port 5432 --username david --file "track_url.sql" --table public.results postgres
+    ```
+
+    - It will ask the password we have set: XXqrksssjfuaativuf13333
+
+    - Go to the local database and import it:
+    ```bash
+    psql spotify < track_url.sql
+    ```
+
+    - Modify the name of the table "results" to be "track_url" (in PgAdmin4)
+
+
+    ### 3.2.8 Add URL property to the graph
+
+    - Now we will add to the Track nodes in the Neo4j the property "url" and "yt_views" (visualizations of youtube video). This property will have one issue, it may happen that for the same song, if queried from different artists, a different href is being set because of the Youtube query and the order of the videos rendered as results from the queried (i.e La Bicicleta Shakira vs. La Bicicleta Carlos Vives may not lead the same video on top of results). For this reason, we will set this property as unique and only updatable if it does not exist, in this way we will update the URL on the first time it sees that song node but once set, this URL property will be immutable.
+
+    1. First go to the **06_Downloading_PostgreSQL_CSV.ipynb** script which was created on the first part of the project to download as .csv all the tables in the local PostgreSQL and we will add one download cell for the table **track_url** in which we will only extract the track_id, href and visual columns. Execute the query, convert it to .csv, and save it to the folder "import" of neo4j:
+    
+    ```bash
+    /Users/david/Library/Application Support/Neo4j Desktop/Application/neo4jDatabases/database-ada73e8c-396c-4507-82cc-758b5f072ea4/installation-4.0.4/import
+    ```
+
+    2. Go to **07_Cypher_Database_Graph_Creation.ipynb** and add a section to upload a property (SET) in case the Track.url property and Track.yt_views property does not exist, create it from the "tr_url.csv" file we have just moved to the "import" folder of neo4j.
+
+# 4. Youtube Download and Analysis
+
+This task consists of taking a set of track_id and download their audios in youtube.
+We will do so using the youtube_dl library and taking in as inputs the track_id and yt_url for each song we want to download.
+The order to download each song will be given through a AWS SQS queue, which will allow us the capacity of, in case we get banned in one region from downloading too many audios
+The idea is that it will upload the results to "tfmdavid/audio" bucket (the result is a .mp3 ) and create a spectogram for the full song. This spectogram can be later windowed to extract pieces of the song for the same length of time. 
+
+So, step by step, we will first launch a new EC2 instance, which will allow us to perform both the YOUTUBE download. The idea will be that once downloading an audio and uploading to S3, we will **trigger a Lambda function** that will run an audio analysis to convert the audio to spectogram (https://medium.com/@manivannan_data/import-custom-python-packages-on-aws-lambda-function-5fbac36b40f8).
+
+## 4.1 Configure Instance for Audio Downloading
+
+- Launch a t2.small instance and perform the following to install everything we need:
+
+```bash
+
+# PYTHON and PIPENV
+sudo su
+sudo yum install python37
+curl -O https://bootstrap.pypa.io/get-pip.py
+python3 get-pip.py --user
+sudo pip3 install pipenv
+add to ~/.bashrc file: sudo nano ~/.bashrc >> export PATH=/usr/local/bin:$PATH
+source ~/.bashrc
+# add it to the other user too (ec2-user and root) (both bashrc files in both users)
+
+# Directory: audio
+mkdir audio
+chmod 777 audio
+cd audio/
+
+# Install basics
+sudo su
+pipenv shell
+pipenv install pandas==1.0.5
+pipenv install numpy==1.19.0
+pipenv install tqdm==4.46.1
+pipenv install boto3==1.14.12
+pipenv install v_log==1.0.1
+pipenv install awscli
+pipenv install jupyter
+echo 'Fin'
+
+# Allow running jupyter notebook 
+
+
+
+```
