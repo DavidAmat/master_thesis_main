@@ -994,7 +994,7 @@ mkdir audio
 chmod 777 audio
 cd audio/
 
-# Install basics
+# Install basics (as root)
 sudo su
 pipenv shell
 pipenv install pandas==1.0.5
@@ -1004,10 +1004,107 @@ pipenv install boto3==1.14.12
 pipenv install v_log==1.0.1
 pipenv install awscli
 pipenv install jupyter
+pipenv install pexpect
 echo 'Fin'
 
-# Allow running jupyter notebook 
+# Allow running jupyter notebook (sudo su)
+> First modify the Security Group to allow TCP on port 8888 as inbound traffic
 
+pipenv run jupyter notebook --generate-config
+vi /root/.jupyter/jupyter_notebook_config.py
+	- use the / function of vi to search for: c.NotebookApp.ip = '*'
+	- UNCOMMENT THE LINE!!! (erase the #)
+	- use function "i" to (INSERT) modify the c.NotebookApp.ip from 'localhost' to '*'
+	- ESC to write the write&exit: :wq!
+pipenv run jupyter notebook --no-browser --allow-root
 
+# When launching this new instance again do:
 
+sudo su
+cd audio/
+pipenv shell
+pipenv run jupyter notebook --no-browser --allow-root
+
+# Save and copty to the local browser
+http://ip-172-31-3-245.eu-west-2.compute.internal:8889/?token=e209a9fd7f8bb7a2b5796f735591889757bea8ef982be5c9
+
+# Replace the DNS by
+3.8.95.164
+
+# Leading to
+http://3.8.95.164:8889/?token=e209a9fd7f8bb7a2b5796f735591889757bea8ef982be5c9
+
+# AWS CREDENTIALS
+aws configure
+AWS Access Key ID [None]: AKIAYXXXXXX
+AWS Secret Access Key [None]: W6e2rYMXXXXXX
+Default region name [None]: eu-west-2
+Default output format [None]: json
+
+## INSTALL FFMPEG
+cd /usr/local/bin
+mkdir ffmpeg
+cd ffmpeg
+wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+tar xvf  ffmpeg-release-amd64-static.tar.xz
+mv ffmpeg-4.3-amd64-static/ffmpeg . # this may change, check ls which si the folder download because maybe version 4.4 is available and downloaded
+ln -sfn /usr/local/bin/ffmpeg/ffmpeg /usr/bin/ffmpeg
+
+# INSTALL YOUTUBE DL - 
+pipenv install ffprobe
+pipenv install youtube_dl
 ```
+
+Now the instance is up and running. We will create a script **main_download.py** which will read from a queue if it finds the "yt_url" and "track_id" and it will download it, and upload to S3 as well as inform to the "status" queue that if has been downloaded correctly. We will insert a functionality to **stop consuming SQS messages and end the execution if IT FAILS to DOWNLOAD more than 2 SONGS in a row** meaning that the instance IP has been banned from downloading more songs. The solution will then be to provision those EC2 instances in another region but we will get on that later.
+
+## 4.2 Creating Queues and Master Download
+
+The process of selecting which songs are going to be downloaded will be guided through the notebook in **Spotify/code** named **11_Download_Songs_Queues.ipynb**:
+
+1. Create a SQS queue (in London) **jobs_download** (Standard) and **status** (Standard) and send all the pairs "yt_url, track_id" that we want to download to the "jobs_download". The "status" will monitor which instance did which track, at which date, and if that track was correctly processed or not. In principle, if a job fails, it will be resend to the **jobs_download** queue, but, if the problem is that the video cannot be found, then this song will not be downloaded because of the limitations of "youtube-dl" software. The reason why both queues are standard is because we don't care in which order they are processed as long as they are done. Also, when doing a FIFO, if the visibility timeout is 10 seconds, when the 1st message is being read, you cannot get the 2nd message if the 1st has not been deleted. If you don't delete it, the message will appear again so, when parallelizing a download queue system like the one we want, FIFO will not work when multiple instances access at the same time the same queue and need to receive **different messages**
+
+    - **Jobs_download**:
+
+        - When creating the "jobs_download" queue we have to take into account the Visibility Timeout (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html). For security purposes we will set this time to 2 minutes, meaning that if in 2 minutes this message has not been deleted, it means that it has not been processed correctly, hence, it will be resend automatically to the queue (visibility timeout = 2 minutes). 
+
+        - The retention period will be 14 days (after 14 days, that message gets eliminated from the queue).
+
+    - **Status**:
+        - Retention of 14 days
+
+    - We will store the URL for those queues!
+
+
+2. Launch an EC2 or more instances that will be launched using the image **base_download**, which is an AMI of the instance that we have just configured in 4.1. This  instance will have the **main_download.py** that will be based on a While loop that will run infintely until 2 things occur:
+    - 1) No more messages are in the queue
+    - 2) We get **banned**: when running the download of such videos, especially the mainstreams one, youtube-dl always find them and can download them, so any error arising from that download it is likely that will be due to a banning of our IP for too many downloads. We want this consideration to be taken when we reach **3 consecutive songs in which we have NOT been able to execute the download command**. 
+
+The **main_download.py** will be executed using the nohup instruction.
+
+3. We create in /home/ec2-user a execution script: **ex.sh**. This script will go to the "main_download" directory and call the python interpreter for the pipenv environment and launch the code.
+
+4. We want this script to be executed as root when launching the instance so we will put it under a heredoc and under the name **ex.sh** at the /home/ec2-user folder:
+
+ ```bash
+#!/usr/bin/env bash
+sudo -i -u root bash << EOF
+/root/.local/share/virtualenvs/audio-DWZ8joIe/bin/python /home/ec2-user/audio/code/main_download.py
+EOF
+```
+5. We create the AMI
+
+6. We launch as many instances as workers we want. We will call this scripts in the **Bootstrap configuration** of the instance launch by introducing:
+
+```bash
+#!/bin/bash
+./home/ec2-user/ex.sh
+```
+When doing so we accomplish executing the python script of downloading audios once the instance is launching.
+
+7. **Now we want to explore in case of banning, trying to move the AMI to another region and launching an EC2 instance**, which is something that helps when being banned from one region in AWS, to change the AMI location and launch instances in another region. To validate so, we go to "North California". To do so, we make a **Copy of the AMI image in London** and set the copy to "North California". We change region and create an instance. We will need to create a new Key Pair for that instance. We realize that when we launch it the song that we have put in our SQS queue gets processed, so this confirms that we have been able to access this queue from another region and run the youtube-dl command to download the audio!
+
+
+
+
+
+3. Use the **11_Download_Songs_Queues** notebook to monitor 
