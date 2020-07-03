@@ -1097,14 +1097,214 @@ EOF
 
 ```bash
 #!/bin/bash
-./home/ec2-user/ex.sh
+bash /home/ec2-user/ex.sh
 ```
 When doing so we accomplish executing the python script of downloading audios once the instance is launching.
 
 7. **Now we want to explore in case of banning, trying to move the AMI to another region and launching an EC2 instance**, which is something that helps when being banned from one region in AWS, to change the AMI location and launch instances in another region. To validate so, we go to "North California". To do so, we make a **Copy of the AMI image in London** and set the copy to "North California". We change region and create an instance. We will need to create a new Key Pair for that instance. We realize that when we launch it the song that we have put in our SQS queue gets processed, so this confirms that we have been able to access this queue from another region and run the youtube-dl command to download the audio!
 
+8. We have a problem, to monitor the status of the "status" queue, there will be thousands of songs as messages (one message per song). Since retrieving such amount of messages is inpractical to monitor, what we have decided is to **create a Lambda Function** that will be triggered once a new message arrives to the status queue, triggering a python code that will upload to a table in our RDS instance, named **status**. 
+
+We will follow the first steps detailed in this video: https://www.youtube.com/watch?v=K5xT9fdsNTg
+
+    - 8.1) Create the table "status". This table can be created in the PgAdmin4 app using the connection to the sever we used previously. We will have as columns, the information that we are receiving in the SQS queue status:
+
+<center>
+
+| table  | column    | type      | PK |
+|--------|-----------|-----------|----|
+| status | instance_id  | varchar(30) | N  |
+| status | stat         | smallint | N  |
+| status | track_id     | varchar(30) | N  |
+| status | yt_url       | varchar(70) | N  |
+| status | date       | TIMESTAMP| N  |
+
+</center>
+
+    - 8.2) Create a Role for Lambda.
+        - Go to IAM > Roles > Create Role > Lambda:
+        - Permissions:
+            - AWSLambdaExecute
+            - AmazonSQSFullAccess
+        - Name it sqs_lambda
+
+    - 8.3) Create a Lambda function:
+        - Create function
+        - Author from scratch
+        - Function name: sqsLambda
+        - Runtime: Python 3.7
+        - Permissions: use an existing role: sqs_lambda
+
+    - 8.4) Add Trigger:
+        - SQS
+            - SQS queue: status: arn:aws:sqs:eu-west-2:555381533193:status
+
+    - 8.5) Click SQS Lambda and edit the Python code
+    - 8.6) Test the format of the message:
+        - print(event)
+        - Save Lambda Function
+        - Go to SQS and send a new message
+        - Go to Monitoring in Lambda
+        - Click on: View Logs in Cloudwatch
+        - We will see a new event due to that new message arrival.
+        - Check the event:
+
+```json
+{
+   "Records":[
+      {
+         "messageId":"d0a64cad-ca58-45c7-91fd-d13eb9b91365",
+         "receiptHandle":"AQEBt158WY0B+PnP0iDphGA/ovUdaBmEnHSY9mKKKDIN4659DjV9uT88YD+xWFCUPb0zwxblgZu+wxNBa2O8FkKN1dkOsAcJ+jFpgX/C4ls+mmhWSO4U23g3sjnxdlJ11DHAa5xa/2ZInciu4rr13bpxV6TZD+tv818nefmvliwPp5iivOInFG+g278qQD31ZAQ+5TJYXhfGHDOhqmnL72yHXe5YT5VO2gdZgUpzL4TwaLF71JIGfG7j2s1HLQD9VyyCgiAXpBhDREjfcpTktuZWIUEw1luv4l9NtWBLE7VJhP1M+amAwOci6qdfqakI9LssbXOAjZwUXEK7Z5dri5Pre7pS/ONJzXXpJgL/313ZWZFbPpGae8jKbKHGnjAh9Zok",
+         "body":"i-08c75636009ae4a27::1::7fwXWKdDNI5IutOMc5OKYw::https://www.youtube.com/watch?v=wnJ6LuUFpMo::2020-07-03 10:51:47",
+         "attributes":{
+            "ApproximateReceiveCount":"1",
+            "SentTimestamp":"1593801695779",
+            "SenderId":"555381533193",
+            "ApproximateFirstReceiveTimestamp":"1593801695781"
+         },
+         "messageAttributes":{
+
+         },
+         "md5OfBody":"81b3c31a34951e38b26a375bc1467054",
+         "eventSource":"aws:sqs",
+         "eventSourceARN":"arn:aws:sqs:eu-west-2:555381533193:status",
+         "awsRegion":"eu-west-2"
+      }
+   ]
+}
+```
+        - We need to acces event["Records"]["body"].
+
+        - The code will be like follows:
 
 
+```python
+# LAMBDA FUNCTION CODE
+import json
+import boto3
+import psycopg2
+
+def lambda_handler(event, context):
+    
+    # Client
+    s3 = boto3.client("s3")
+    data = event["Records"][0]["body"]
+    
+    # Prepare the query
+    data = data.split("::")
+    try:
+        instace_id = data[0]
+        stat = data[1]
+        track_id = data[2]
+        yt_url = data[3]
+        date = data[4]
+    except:
+        return {'statusCode': 200, 'body': json.dumps(f'Nothing uploaded'), 'see': data}
+    
+    
+    query_insert = f"""
+    INSERT INTO status (instance_id, track_id, yt_url, date, stat) VALUES ('{instace_id}','{track_id}','{yt_url}','{date}','{stat}')
+    """.strip()
+
+    ENDPOINT="tracksurl.czjs6btlvfgd.eu-west-2.rds.amazonaws.com"
+    PORT="5432"
+    USR="david"
+    REGION="eu-west-2"
+    DBNAME="postgres"
+    PSSWD=["qrks","jfut","iv","uf","1"]
+    
+    conn = psycopg2.connect(host=ENDPOINT, port=PORT, database=DBNAME, user=USR, password=''.join(PSSWD))
+    cur = conn.cursor()
+    cur.execute(query_insert)
+    conn.commit()
+    conn.close()
+    return {'statusCode': 200, 'body': json.dumps(f'Correctly uploaded {track_id} status')}
+```
+        - We can set as examples to test:
+
+```bash
+"i-08c75636009ae4a27::1::7fwXWKdDNI5IutOMc5OKYw::https://www.youtube.com/watch?v=wnJ6LuUFpMo::2020-07-03 10:51:47"
+"i-08c75636009ae4a26::1::QQwXWKdDNI5IutOMc5OKYw::https://www.youtube.com/watch?v=wnJ6LuUFCMo::2019-07-03 10:51:47"
+```
+        - We don't find the pyscopg2 module so we will have to create a deployment package:
+
+        - Follow: https://kalyanv.com/2019/06/10/using-postgresql-with-python-on-aws-lambda.html from section "Setting up virtual environment on a EC2 instance". You will see that you need to install many things... 
+
+        - It assumes that we have downloaded the binaries in local (folder binares_PSQL_PSYCOPG in AWS/Lambda), and used Filezilla to scp them to /home/ec2-user. Then, also make sure the version of the psycopg2 package when changing directory. I will let here the history of the EC2 instance:
+
+```bash
+# History of the EC2 instance
+    1  ls
+    2  tar -xf postgresql-10.0.tar
+    3  cd postgresql-10.0/
+    4  ./configure --prefix `pwd` --without-readline --without-zlib
+    5  make
+    6  ./configure --prefix 'pwd' --without-readline --without-zlib
+    7  ./configure --prefix . --without-readline --without-zlib
+    8  ./configure --prefix /home/ec2-user --without-readline --without-zlib
+    9  sudo yum install python3
+   10  ls
+   11  cd ..
+   12  ls
+   13  sudo yum install python3
+   14  sudo yum install gcc python-setuptools python-devel python3-devel
+   15  sudo yum install postgresql-devel
+   16  python3 -m venv my_venv
+   17  cd postgresql-10.0
+   18  ./configure --prefix `pwd` --without-readline --without-zlib
+   19  make
+   20  cd ..
+   21  ls
+   22  tar -xf psycopg2-2.8.5.tar
+   23  cd psycopg2-2.8.5/
+   24  ls
+   25  nano setup.cfg
+   26  python3 setup.py build
+   27  cd /home/ec2-user/postgresql-10.0/
+   28  ls
+   29  cd ..
+   30  ls
+   31  cd postgresql-10.0/
+   32  ls
+   33  make install
+   34  ls
+   35  cd ..
+   36  ls
+   37  cd psycopg2-2.8.5/
+   38  ls
+   39  python3 setup.py build
+   40  ls
+   41  cd build/
+   42  ls
+   43  cd lib.linux-x86_64-3.7/
+   44  ls
+   45  pwd
+   46  history
+
+```
+        - Follow exactly what the tutorial says cause it matches what we have to do.
+        - When finished, transfer with Filezilla the folder psycopg2 from the location that it is specified to our local machine, and, conjunctively with our my_lambda.py (script of python above), make a zip of that folder (named pypg_lambda). 
+
+```bash
+zip -r ../my_lambda.zip .
+```
+
+        - We do a test1 (see AWS/imgs/Lambda/testLambda.png) and see that it is uploaded to the database in RDS (table STATUS). More images are done to test that it works. We purge the status queue and the status table to allow setting the environment as productive and start launching EC2 instances.
+
+        - Now let's try to send a message manually to the SQS status queue. Put in "body" (SQS > Queue Actions > Send Message)
 
 
-3. Use the **11_Download_Songs_Queues** notebook to monitor 
+3. Use the **11_Download_Songs_Queues** notebook to monitor the **status** table in RDS. Or use PgAdmin4 also to monitor how the table keeps updating.
+
+4. Feed the **jobs_download** queue (using notebook 11_Download_Songs_Queues). Use 100 songs or so.
+
+5. Launch an EC2 instance from the **download_base** AMI. Remember to launch them with the Bootstrap configuration:
+
+```bash
+#!/bin/bash
+bash /home/ec2-user/ex.sh
+```
+
+6. We see that approximately the rythm of download, according to the **df_status** in Section 5. Monitor Status from Spotify/code/11_Download_Songs_Queues has a mean of 9.2 seconds +/- a std. dev of 1.8 seconds for each song (see column "diff"). This calculation is done per instance id so different instances in different regions may show up different numbers here.
+
+7. We can finally see the progress by ssh into the instance and inspecting the folder /home/ec2-user/audio/code/log and doing a "cat" over the node.log (see AWS/imgs/nodelog)
