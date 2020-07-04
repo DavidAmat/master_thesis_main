@@ -1307,4 +1307,57 @@ bash /home/ec2-user/ex.sh
 
 6. We see that approximately the rythm of download, according to the **df_status** in Section 5. Monitor Status from Spotify/code/11_Download_Songs_Queues has a mean of 9.2 seconds +/- a std. dev of 1.8 seconds for each song (see column "diff"). This calculation is done per instance id so different instances in different regions may show up different numbers here.
 
-7. We can finally see the progress by ssh into the instance and inspecting the folder /home/ec2-user/audio/code/log and doing a "cat" over the node.log (see AWS/imgs/nodelog)
+7. We can finally see the progress by ssh into the instance and inspecting the folder /home/ec2-user/audio/code/log and doing a "cat" over the node.log (see AWS/imgs/nodelog).
+
+8. Since this process is a little bit tiring, what we will do, is to set up a SNS notification within the Lambda function too, to allow sending an email to our personal email informing about special status (-1 status or 0). Remember that 0 status mean that there has been one error either because the song cannot be downloaded or because the upload to S3 failed (should not happen). Moreover, if 3 fails are consecutively recorded for the download part, then it is clear that we have been banned so we must notify that these instances should be closed to avoid consuming innecessary resources of an instance that will be kept open. The loop however (while True) is "broken" (break) once it finds 3 consecutive fails so the instance is not consuming input tracks from the SQS queue but anyway is still up and running. A notification will help us to know when we reach this problem, so that we have to change to another region the instances cause in that region there has been a ban from youtube-dl.
+
+9. To create so what we have don is to associate to the Lambda function previously created, the call of a function that publish a message to a SNS topic, in such a way that if the Lambda function detects that a message from the SQS status queue contains the value of "stat = 0" or "stat = -1" it will trigger this notification to my personal email, in such a way that I will know when I have to close those instances without having to SSH directly into each of them.
+
+The steps are well detailed in:
+https://blogit.create.pt/guilhermeperuzzi/2019/10/21/send-email-in-aws-using-sqs-sns-and-lambda-function/
+
+Topic Name: status_sns
+ARN: arn:aws:sns:eu-west-2:555381533193:status_sns
+
+Create a Subscription to an Endpoint, which will be my personal email. We get a personal mail confirming the subscription of my email to that topic.
+
+We add to the Lambda IAM role (see Services > IAM > Roles) named **sqs_lambda**, which already has SQS Full Access policy and AWS Lambda Execute policy, a new policy for accessing SNS, named **AmazonSNSFullAccess**.
+
+Once this is step, we only need to go to the Lambda function, set up and **environmental variable** to store the Topic ARN, create a function **send_request** that will send a body message and a subject to my personal email. Such event only happens if the **stat** from the SQS message that has triggered this Lambda contained a status = 0 or status = -1. For each of the 2 cases we see that 0 sends an AWSERROR UPLOADING/DOWNLOADING TRACK as subject while the AWSERRORBANNED is for the -1 case when 3 consecutive 0 are being send for that instance.
+
+An example of message to send will be:
+
+instaceid-12813192381::-1::kj3lkajlkj1j22::http://youtube.com/watch=?lacwB230c::2020-07-03 22:45:26 
+
+
+## 4.2 Process Downloading
+
+1. Execute 1.2.1 from 11_Download_Songs_queues to send ALL songs (61,551)to be downloaded
+2. Run Subsection **a)** List current S3 objects to avoid downloading already downloaded audios
+3. Execute 2.2 Send jobs to **jobs_download**. While the jobs are being sent we can launch the instances
+4. Create an AMI from the most recent working EC2 instance. Before creating it, make sure we delete the bootstrap configuration for that EC2 instance `sudo /bin/rm -rf /var/lib/cloud/*`
+5. Name this AMI "dwn_base_v2".
+6. Launch 5 EC2 instance with the Bootscrap script
+
+```bash
+#!/bin/bash
+bash /home/ec2-user/ex.sh
+```
+- To check the status
+
+```sql
+SELECT instance_id, track_id, yt_url, date, stat
+	FROM public.status;
+	
+SELECT * FROM (SELECT instance_id, count(stat) as downloads
+	FROM public.status GROUP BY instance_id) x1 ORDER BY x1.downloads DESC;
+
+SELECT COUNT(*) FROM status;
+
+SELECT * FROM status where stat != '1';
+
+```
+
+- See images at **/Users/david/Google Drive/16. Master BigData/5 - Modulos/Modulo 10 - TFM/2. TFM/Codigos/AWS/imgs/yt_down**.
+
+
