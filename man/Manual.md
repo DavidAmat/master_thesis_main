@@ -1361,3 +1361,84 @@ SELECT * FROM status where stat != '1';
 - See images at **/Users/david/Google Drive/16. Master BigData/5 - Modulos/Modulo 10 - TFM/2. TFM/Codigos/AWS/imgs/yt_down**.
 
 
+## 5. Audio Analysis
+
+Launch an instance from the base_dwn_v2 image as t2.medium.
+
+Install the following
+```bash
+cd audio/
+pipenv shell
+
+# Once the audio env is activated
+pipenv install numba==0.48
+pipenv install librosa
+pipenv install matplotlib #for dev
+
+```
+
+http://www2.ece.rochester.edu/projects/air/publications/zhang2018siamese.pdf (16kHz downsample)
+
+https://ieeexplore.ieee.org/abstract/document/7918403 (median filtering spectogram)
+
+
+create the status_specto table
+
+<center>
+
+| table  | column    | type      | PK |
+|--------|-----------|-----------|----|
+| status_specto | instance_id  | varchar(30) | N  |
+| status_specto | stat         | smallint | N  |
+| status_specto | track_id     | varchar(30) | N  |
+| status_specto | win         | smallint | N  |
+| status_specto | ini         | smallint | N  |
+| status_specto | fin         | smallint | N  |
+| status_specto | rows         | smallint | N  |
+| status_specto | cols         | smallint | N  |
+| status_specto | date       | TIMESTAMP| N  |
+
+</center>
+
+create a lambda function (SQSLambda_specto) associated to the status_specto SQS
+
+
+
+
+# SQS examples
+
+00MrYUJUUybpSLAeIodbuj
+02BFwEOy6xGNbtmWaJJH2d
+01rtYrk7VtuIgNcVfOaVaN
+02wdwZ0ffTX0AAGYRNqMwF
+
+
+ex.sh
+ ```bash
+#!/usr/bin/env bash
+sudo -i -u root bash << EOF
+/root/.local/share/virtualenvs/audio-DWZ8joIe/bin/python /home/ec2-user/audio/code/main_specto.py
+EOF
+```
+
+
+Bootscrap script:
+```bash
+#!/bin/bash
+bash /home/ec2-user/ex.sh
+```
+
+
+SELECT *  FROM public.status_specto
+
+SELECT instance_id, track_id, count(win) as num_wins
+FROM status_specto
+GROUP BY instance_id, track_id
+ORDER BY instance_id;
+
+SELECT instance_id, count(distinct track_id) as tracks
+FROM status_specto
+GROUP BY instance_id ;
+
+
+Script 12_Create_List_Spectogram_Songs_download
