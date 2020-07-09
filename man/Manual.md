@@ -1363,9 +1363,12 @@ SELECT * FROM status where stat != '1';
 
 ## 5. Audio Analysis
 
-Launch an instance from the base_dwn_v2 image as t2.medium.
+The aim for the Audio analysis section is to take all the mp3 songs downloaded in S3 and apply an audio analysis pipeline in which we can get the spectograms of the tracks. But, we are not interested in retrieving all the song spectrogram as a single image but to make chunks of fixed size. We will use the so-called Mel Spectogram technique to binarize frequencies so that the y-axis present always a fixed size. In that direction, we want the x-axis to be always of fixed size, so what we will do is just take chunks of 30 seconds for each song, imagine a window of 30 seconds, that moves 20 seconds scanning all the spectrogram x-axis, so that we will get multiple windows for the same song. Windows are numerated from 0 to X (depending on the length of the song), but each window will have the same dimensions (or almost the same so that then we can do a crop to fit in the standard size that we will fix and avoid different dimensions errors in the tensors). 
 
-Install the following
+To do so, we will follow a similar approach as before. We will create an EC2 instance, install everything that is needed in order to run librosa, the library that will help us to perform the audio analysis. The instance will read from a queue (jobs_specto) and report the results to another queue (status_specto) which will have a trigger from a Lambda function to upload the messages in status_specto to 
+
+We will reuse an instance from the base_dwn_v2 image as t2.medium. This image will need some packages to be installed (librosa runs with numba so we need this package too):
+
 ```bash
 cd audio/
 pipenv shell
@@ -1374,15 +1377,9 @@ pipenv shell
 pipenv install numba==0.48
 pipenv install librosa
 pipenv install matplotlib #for dev
-
 ```
 
-http://www2.ece.rochester.edu/projects/air/publications/zhang2018siamese.pdf (16kHz downsample)
-
-https://ieeexplore.ieee.org/abstract/document/7918403 (median filtering spectogram)
-
-
-create the status_specto table
+We also have to configure the new Lambda function that will take the messages from the status_specto and upload them into the RDS instance we have. This table will be named also "status_specto:
 
 <center>
 
@@ -1400,36 +1397,122 @@ create the status_specto table
 
 </center>
 
-create a lambda function (SQSLambda_specto) associated to the status_specto SQS
+This is the code that triggers this upload once an event of a new message of SQS in the status_specto queue is detected:
+
+```python
+import json
+import boto3
+import psycopg2
+import os
+
+def lambda_handler(event, context):
+    
+    # Client
+    s3 = boto3.client("s3")
+    data = event["Records"][0]["body"]
+    
+    # Prepare the query
+    data = data.split("::")
+    try:
+        instance_id = data[0]
+        stat = int(data[1])
+        track_id = data[2]
+        win = int(data[3])
+        ini =int(data[4])
+        fin = int(data[5])
+        rows = int(data[6])
+        cols = int(data[7])
+        date = data[8]
+    except:
+        return {'statusCode': 200, 'body': json.dumps(f'Nothing uploaded'), 'see': data}
+    
+    
+    query_insert = f"""
+    INSERT INTO public.status_specto (instance_id, stat, track_id, win, ini, fin, rows, cols, date)
+	VALUES ('{instance_id}', {stat},  '{track_id}', {win}, {ini}, {fin}, {rows}, {cols}, '{date}')
+    """.strip()
+
+    ENDPOINT="tracksurl.czjs6btlvfgd.eu-west-2.rds.amazonaws.com"
+    PORT="5432"
+    USR="david"
+    REGION="eu-west-2"
+    DBNAME="postgres"
+    PSSWD=["qrks","jfut","iv","uf","1"]
+    
+    conn = psycopg2.connect(host=ENDPOINT, port=PORT, database=DBNAME, user=USR, password=''.join(PSSWD))
+    cur = conn.cursor()
+    cur.execute(query_insert)
+    conn.commit()
+    conn.close()
+
+        
+    return {'statusCode': 200, 'body': json.dumps(f'Correctly uploaded {track_id} status')}
+```
+
+Basically status_specto will control for:
+
+- stat: if the conversion to spectogram and upload to S3 is done properly (=1)
+- win: the number of the window which had fit inside the song duration imposing 30 second duration and 20 second of hop from window to window.
+- ini: initial position of the window "win". Win = 0 always will start at ini = 0 (seconds), and win = 1 will always start at ini = 20 (seconds) (remember that it moves 20 seconds).
+- fin: end position in seconds of that window win. 
+- rows: the number of rows (number of pixles in the y axis). It coincides with the number of mel frequencies specified, which will be 256.
+- cols: number of columns (pixels in the x axis) of the spectrogram. to calculate them we need to know the Fast Fourier Transform argument "hop_lenght" which defines the number of samples which the FFT needs to compute the frequency for that amount of time. Hence, if the hop_length is 512 samples and our audio had 512.000 samples, then we will have 1.000 columns. Since we do not usually count the number of samples but use time measures (i.e 30 seconds) we need to convert the hop_length equivalent in time. To do so we will do the following, taking into account the sampling rate (s) which will be set to 16kHz (downsample the audio which usually is downloaded as 44.1kHz) as stated in the article  http://www2.ece.rochester.edu/projects/air/publications/zhang2018siamese.pdf:
+
+```python
+# We first calculate the spectrogram of the FULL song: S_dB
+# we want to slice this S_dB so that we take the snapshot of 30 seconds spectrogram
+start_pos = win[0] # in seconds (i.e 0 seconds)
+end_pos = win[1] # in seconds (i.e 30 seconds)
+
+# Equivalent sample step in time (ms) for the STFT
+STFT_sample_step_ms = hop / s # (i.e 32 ms per hop)
+
+# Sample range (convert seconds range to sample range to slice the spectrogram matrix)
+ssii = int(start_pos / STFT_sample_step_ms) # position in samples of the initial position of the window to slice S_db
+ssff = int(end_pos / STFT_sample_step_ms) # end position of the window
+
+# Window sample (of 30 seconds)
+sample = S_dB[:,ssii:ssff]
+
+```
+It is highly recommended in order to avoid noise distorting our signal, to filter out energies in the spectrogram which are below the median and hence, do not show up a significant contribution to the frequency of that fragment (
+https://ieeexplore.ieee.org/abstract/document/7918403 (median filtering spectogram).
+
+Finally, the convention to store the files will be with that name:
+
+```python
+plt.imsave(f'{track_id}__{num_win}__{start_pos}__{end_pos}.jpg', sample, cmap='gray_r', origin='lower')
+```
+
+Involving the track_id, the number of that window (0, 1, 2... X), the starting position in SECONDS (0, 20, 40) and ending positions in seconds (30, 50, 70) (see the bucket tfmdavid/spec/)
 
 
+### 5.1 Launching the jobs
 
+To run the job when launching a set of many instances, we will create a bash script in the /home/ec2-user directory named **ex.sh** executing the code of main_specto.py:
 
-# SQS examples
-
-00MrYUJUUybpSLAeIodbuj
-02BFwEOy6xGNbtmWaJJH2d
-01rtYrk7VtuIgNcVfOaVaN
-02wdwZ0ffTX0AAGYRNqMwF
-
-
-ex.sh
  ```bash
 #!/usr/bin/env bash
 sudo -i -u root bash << EOF
 /root/.local/share/virtualenvs/audio-DWZ8joIe/bin/python /home/ec2-user/audio/code/main_specto.py
 EOF
 ```
+This bash script will be run once launching an instance, since we will specify a Bootscrap script in the EC2 launching process to run that script when launching all the instances (we launch 30):
 
-
-Bootscrap script:
 ```bash
 #!/bin/bash
 bash /home/ec2-user/ex.sh
 ```
+See imgs at /Users/david/Google Drive/16. Master BigData/5 - Modulos/Modulo 10 - TFM/2. TFM/Codigos/AWS/imgs to highlight this.
 
+We know that every instance has an infinite loop (While loop) that keeps listening to the **jobs_specto** queue, that will serve as the source of **track_id** which they have to download. To send such messages into the jobs_specto queue we will use the notebook 12_Create_List_Spectogram_Songs_Download.ipynb. We will first see which songs are available as mp3 in our S3 bucket to avoid sending a track_id which has not audio available. We check that we have up to 56,334 different track_id as .mp3. **BUT** since such audios come from youtube scrapping, it may happen sometimes that we donwload a video that coincides with the query (title + artist) but it contains a full session of maybe 1 hour of video. Obviously, the size of the audio can take like 300MB in mp3, so when converted to .wav the file can damage the memory available in the t2.medium instance. Since this has happened, to avoid this, impose that all songs should be less than 10MB in .mp3 (remember that we are taking the lowest quality in the youtube-dl command for audio). Finally, .mp3 files that fulfill this both requirements (being on S3 and <10MB of size in -mp3) will be send to the queue "jobs_specto".
 
+We launch the instances and everything starts to work. To control for the status of how the instances are doing we can use the following queries:
+
+```sql
 SELECT *  FROM public.status_specto
+SELECT COUNT(*)  FROM public.status_specto
+SELECT COUNT(DISTINCT track_id) FROM status_specto
 
 SELECT instance_id, track_id, count(win) as num_wins
 FROM status_specto
@@ -1439,6 +1522,13 @@ ORDER BY instance_id;
 SELECT instance_id, count(distinct track_id) as tracks
 FROM status_specto
 GROUP BY instance_id ;
+```
+
+In few hours we have everything uploaded.
 
 
-Script 12_Create_List_Spectogram_Songs_download
+# 6. Model
+
+## 6.1 Data Preparation
+
+https://medium.com/@crimy/one-shot-learning-siamese-networks-and-triplet-loss-with-keras-2885ed022352
