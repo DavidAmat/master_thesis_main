@@ -20,6 +20,7 @@ lxml = "*"
 py2neo = "*"
 boto3 = "*"
 matplotlib = "*"
+pyspark = "*"
 
 [requires]
 python_version = "3.7"
