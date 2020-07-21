@@ -1529,6 +1529,134 @@ In few hours we have everything uploaded.
 
 # 6. Model
 
+https://medium.com/@crimy/one-shot-learning-siamese-networks-and-triplet-loss-with-keras-2885ed022352
+
 ## 6.1 Data Preparation
 
-https://medium.com/@crimy/one-shot-learning-siamese-networks-and-triplet-loss-with-keras-2885ed022352
+- At Spotify/code/ we have set the notebook 13 and 14. Such notebooks create triplets of songs. See the notebook to see the criterias. In notebook 14, we upload such triplets (which have been stored to the psql table "triplets" using the code in 13) in the S3 bucket as a parquet file. 
+
+This file should be downloaded by the instance that will do the training on the GPU.
+
+## 6.2 Training
+
+- Request increase vCPU limit on AWS region London for P3 instances
+
+- Run a c5n.2xlarge, open the 8888 port to allow running jupyter notebook.
+
+(port forwarding local 8890 to ec2 instance port 8888)
+```bash
+# ssh into DeepLearning instance
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" -L localhost:8890:localhost:8888 ubuntu@ec2-18-130-33-248.eu-west-2.compute.amazonaws.com
+
+# Inside the instance
+source activate pytorch_p36
+jupyter notebook --no-browser
+
+# Go locally in your browser to:
+http://localhost:8890
+
+# When asked for the token, see in the terminal the token:
+http://localhost:8888/?token=5b9661b48c0b626caf0787059a347be09f214a8cc9e09a6b
+
+# which is:
+5b9661b48c0b626caf0787059a347be09f214a8cc9e09a6b
+```
+
+- We need to install pyarrow:
+
+```bash
+# Inside the instance
+source activate pytorch_p36
+
+# pip install it
+pip install pyarrow
+
+# Configure credentials of aws to use the S3 bucket
+aws configure
+
+# look at the /Codigos/credentials folder for the user_tfm/tfm_user_keys.txt or the cat ~/.aws/credentials work well to (region eu-west-2)
+
+
+# Install mlio
+conda install -c mlio -c conda-forge mlio-py
+```
+
+- Download the parquet files and store it as a dataframe. 
+
+- Then, create a volume to download the spec images data:
+
+- Create a volume: a Provisioned IOPS of 70 GB and 3500 IOPS
+
+- Attach the volume to the running instance. Look for /dev/xvdf or /dev/xvdp.
+
+### 6.2.1 Mount the volume on Linux
+
+(https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-using-volumes.html)
+
+```bash
+
+# on the Deep Learning Ec2 instance
+
+# disk devices and mount points
+lsblk 
+
+# the attached volume of 70G is nvme1n1 and it is NOT yet mounted (has not a MOUNTPOINT)
+
+# See if there is already a file system on the volume, if the OUTPUT is "data" then there is NO file system yet
+sudo file -s /dev/nvme1n1
+
+# To create teh file system on the volume:
+sudo mkfs -t xfs /dev/nvme1n1
+
+# Run again:
+sudo file -s /dev/nvme1n1
+
+# And check that there is an ouput of filesystem data
+
+# Create a mount point directory
+sudo mkdir /home/ubuntu/data
+
+# Mount the volume at the directory you created:
+sudo mount /dev/nvme1n1 /home/ubuntu/data
+
+# Now, running lsblk will show the MOUNTPOINT
+
+# ---------------------------------------
+# DOWNLOAD ALL THE spec folder to the VOLUME
+# ---------------------------------------
+cd data
+
+# Change the permissions of this folder to allow ubuntu user to make writes on it
+sudo chown ubuntu data
+
+# Go to S3 and add this Policy to the S3 bucket tfmdavid, in the folder "spec" choose Bucket Policy:
+ {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AddPerm",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::555381533193:user/tfm"
+                ]
+            },
+            "Action": [
+                "s3:GetObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::tfmdavid/spec/*"
+            ]
+        }
+    ]
+}
+
+# Go to the terminal, cd in to data folder and run:
+
+aws s3 cp s3://tfmdavid/spec . --recursive
+```
+
+This download leads to 630,227 images in the data/ folder.
+
+
+

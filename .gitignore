@@ -1,1 +1,14 @@
 data/artists.csv
+data/triplets.parquet/.part-00000-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet.crc
+data/triplets.parquet/.part-00001-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet.crc
+data/triplets.parquet/.part-00002-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet.crc
+data/triplets.parquet/.part-00003-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet.crc
+data/triplets.parquet/.part-00004-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet.crc
+data/triplets.parquet/.part-00005-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet.crc
+data/triplets.parquet/_SUCCESS
+data/triplets.parquet/part-00000-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet
+data/triplets.parquet/part-00001-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet
+data/triplets.parquet/part-00002-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet
+data/triplets.parquet/part-00003-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet
+data/triplets.parquet/part-00004-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet
+data/triplets.parquet/part-00005-862a8bb7-b08b-434b-b9a0-5a3d54b11807-c000.snappy.parquet
