@@ -1659,4 +1659,24 @@ aws s3 cp s3://tfmdavid/spec . --recursive
 This download leads to 630,227 images in the data/ folder.
 
 
+Every time we boot, we have to mount again the volume:
+```bash
+lsblk
+sudo mount /dev/nvme1n1 /home/ubuntu/data
 
+# where nvme0n1 appeared as the 70GB disk
+```
+
+### 6.2.2 Image pixels from 0-255 to 0-1
+
+https://machinelearningmastery.com/how-to-manually-scale-image-pixel-data-for-deep-learning/
+
+
+### 6.2.3 Deep Learning Image
+
+watch nvidia-smi
+
+
+source activate pytorch_p36
+
+jupyter notebook --no-browser
