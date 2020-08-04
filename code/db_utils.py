@@ -53,4 +53,3 @@ def Songs_of_Artist(cursor, art_name):
     return df_songs
     
     
-    

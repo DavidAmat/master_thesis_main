@@ -1674,6 +1674,15 @@ https://machinelearningmastery.com/how-to-manually-scale-image-pixel-data-for-de
 
 ### 6.2.3 Deep Learning Image
 
+tfm
+cd AWS/
+export dns="ec2-35-178-186-10.eu-west-2.compute.amazonaws.com"
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ubuntu@$dns
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" -L localhost:8890:localhost:8888 ubuntu@$dns
+
+lsblk
+sudo mount /dev/xvdf /home/ubuntu/data
+
 watch nvidia-smi
 
 
