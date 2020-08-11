@@ -21,6 +21,10 @@ py2neo = "*"
 boto3 = "*"
 matplotlib = "*"
 pyspark = "*"
+opencv-python = "*"
+v-log = "*"
+plaidml-keras = "*"
+seaborn = "*"
 
 [requires]
 python_version = "3.7"

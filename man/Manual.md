@@ -1689,3 +1689,9 @@ watch nvidia-smi
 source activate pytorch_p36
 
 jupyter notebook --no-browser
+
+
+### 6.2.4 Deep Learning locally
+
+Since CUDA is not working anymore for Mac, we will use PlainML using Keras
+https://medium.com/@Vatsal410/keras-without-nvidia-gpus-with-plaidml-and-amd-gpu-4ba6f60025ce
