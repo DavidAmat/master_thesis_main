@@ -1695,3 +1695,5 @@ jupyter notebook --no-browser
 
 Since CUDA is not working anymore for Mac, we will use PlainML using Keras
 https://medium.com/@Vatsal410/keras-without-nvidia-gpus-with-plaidml-and-amd-gpu-4ba6f60025ce
+
+Monitor GPU usage: Monitor de Actividad > Visualizacion > GPU 
