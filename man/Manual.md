@@ -1697,3 +1697,62 @@ Since CUDA is not working anymore for Mac, we will use PlainML using Keras
 https://medium.com/@Vatsal410/keras-without-nvidia-gpus-with-plaidml-and-amd-gpu-4ba6f60025ce
 
 Monitor GPU usage: Monitor de Actividad > Visualizacion > GPU 
+
+
+### New try of the Neural Network using Classification P2 instances
+
+
+
+First use a c5n instance to download the spec.zip to the EBS volume
+
+Launch a p3 instance to run the model
+```bash
+tfm
+
+cd Spotify/
+
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" -L localhost:8890:localhost:8888 ubuntu@ec2-35-178-96-122.eu-west-2.compute.amazonaws.com
+
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ec2-user@ec2-35-179-88-92.eu-west-2.compute.amazonaws.com
+
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ubuntu@ec2-35-178-96-122.eu-west-2.compute.amazonaws.com
+
+aws configure
+
+
+lsblk
+
+sudo file -s /dev/xvdf
+sudo mkfs -t xfs /dev/xvdf
+sudo file -s /dev/xvdf
+sudo mkdir /home/ubuntu/data
+sudo chmod 777 data
+sudo mount /dev/xvdf /home/ubuntu/data
+
+cd data
+aws s3 cp s3://tfmdavid/spec.zip .
+aws s3 cp s3://tfmdavid/triplets.csv .
+
+source activate tensorflow2_p36
+
+jupyter notebook --allow-root --no-browser
+
+localhost:8890 -> enter the token
+
+mkdir TFM
+git clone https://github.com/DavidAmat/TFM_Spotify.git
+
+upload the triplets and the df_catalan
+
+
+
+```
+
+On new launch
+
+```bash
+lsblk
+sudo mount /dev/nvme0n1 /home/ubuntu/data
+```
+
+
