@@ -1713,8 +1713,6 @@ cd Spotify/
 
 ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" -L localhost:8890:localhost:8888 ubuntu@ec2-35-178-96-122.eu-west-2.compute.amazonaws.com
 
-ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ec2-user@ec2-35-179-88-92.eu-west-2.compute.amazonaws.com
-
 ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ubuntu@ec2-35-178-96-122.eu-west-2.compute.amazonaws.com
 
 aws configure
@@ -1730,8 +1728,11 @@ sudo chmod 777 data
 sudo mount /dev/xvdf /home/ubuntu/data
 
 cd data
-aws s3 cp s3://tfmdavid/spec.zip .
+aws s3 cp s3://tfmdavid/spec.zip spec.zip
+unzip spec.zip
+rm -rf spec.zipun
 aws s3 cp s3://tfmdavid/triplets.csv .
+sudo nano dfneo_CAT.csv
 
 source activate tensorflow2_p36
 
