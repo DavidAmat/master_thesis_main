@@ -1,2 +1,4 @@
 # TFM_Spotify
-Interactions with Spotify API to retrieve artists and songs and create a graph out of their relationships.
+
+
+This work is part of the TFM Master Thesis for my Master in IMF School in Business Analytics and Big Data
