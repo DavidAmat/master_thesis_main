@@ -23,14 +23,6 @@ git pull origin master
 ```
 Each repo will have its own pipfile to avoid accumulate python packages for other tasks.
 
-```bash
-
-```
-
-
-```bash
-
-```
 ## Tables
 
 Tables in Markdown are generated with https://www.tablesgenerator.com/markdown_tables
@@ -951,6 +943,15 @@ We will follow this strategy (called heredoc) to run the script of the .py that 
 
     - Modify the name of the table "results" to be "track_url" (in PgAdmin4)
 
+| table  | column    | type      | PK |
+|--------|-----------|-----------|----|
+| track_url | artist_id  | varchar(30) | Y  |
+| track_url | track_id         | varchar(30) | Y  |
+| track_url | is_found     | boolean | N  |
+| track_url | queried       | varchar(300) | N  |
+| track_url | href       | varchar(100) | N  |
+| track_url | visual       | bigint | N  |
+
 
     ### 3.2.8 Add URL property to the graph
 
@@ -1012,7 +1013,7 @@ echo 'Fin'
 
 pipenv run jupyter notebook --generate-config
 vi /root/.jupyter/jupyter_notebook_config.py
-	- use the / function of vi to search for: c.NotebookApp.ip = '*'
+	- use the / function of vi to search  to hfor: c.NotebookApp.ip = '*'
 	- UNCOMMENT THE LINE!!! (erase the #)
 	- use function "i" to (INSERT) modify the c.NotebookApp.ip from 'localhost' to '*'
 	- ESC to write the write&exit: :wq!
@@ -1711,9 +1712,9 @@ tfm
 
 cd Spotify/
 
-ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" -L localhost:8890:localhost:8888 ubuntu@ec2-35-178-96-122.eu-west-2.compute.amazonaws.com
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" -L localhost:8890:localhost:8888 ubuntu@ec2-18-132-37-37.eu-west-2.compute.amazonaws.com
 
-ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ubuntu@ec2-35-178-96-122.eu-west-2.compute.amazonaws.com
+ssh -i "../credentials/AWS_KeyPair_London/TFM_London.pem" ubuntu@ec2-18-132-37-37.eu-west-2.compute.amazonaws.com
 
 aws configure
 
